@@ -8,7 +8,7 @@ public:
 	}
 
 private:
-	float fBatPos{ 0.0f };
+	olc::vf2d vBatPos{ 0.0f, 0.0f };
 	float fBatWidth{ 40.0f };
 	float fBatSpeed{ 3.0f };
 
@@ -62,7 +62,9 @@ public:
 		// Create decal of fragment
 		decFragment = std::make_unique<olc::Decal>(sprFragment.get());
 
-		
+		// Bat Start
+		vBatPos = { 0.0f, 29.0f };
+
 		// Ball start
 		float fAngle = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f * 3.14159f;
 		vBallDir = { cos(fAngle), sin(fAngle) };
@@ -76,31 +78,26 @@ public:
 		// Collision detect
 		// Calculate where ball should be, if no collision
 		olc::vf2d vPotentialBallPos = vBallPos + vBallDir * fBallSpeed * fElapsedTime;
-
-
-		// Handle User Input
-		// Lerp the bat into position
-		fBatPos +=
-			((fBatSpeed * (static_cast<float>(GetMouseX()) - fBatPos - static_cast<int>(fBatWidth) / 2)) * fElapsedTime) / vBlockSize.x;
-
-		// Manage out of bounds bat
-		// if (fBatPos < 11.0f) fBatPos = 11.0f;
-		// if (fBatPos + fBatWidth > static_cast<float>(ScreenWidth()) - 10.0f)
-			// fBatPos = static_cast<float>(ScreenWidth()) - 10.0f - fBatWidth;
 	
 		olc::vf2d vTileBallRadialDims{ fBallRadius / vBlockSize.x, fBallRadius / vBlockSize.y };
 
+		// Check if ball has gone off screen
+		olc::vf2d vBallScreenPos{ vPotentialBallPos *  vBlockSize };
+		if (vBallScreenPos.y >= ScreenHeight()){
+			// Reset ball location
+			float fAngle = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f * 3.14159f;
+			vBallDir = { cos(fAngle), sin(fAngle) };
+			vBallPos = { 12.5f, 15.5f };
+			vPotentialBallPos = vBallPos + vBallDir * fBallSpeed * fElapsedTime;
+		}
+
 		auto TestResolveCollisionPoint = [&](const olc::vf2d& point, olc::vf2d& hitpos, int& id){
 				olc::vi2d vTestPoint = vPotentialBallPos + vTileBallRadialDims * point;
-				auto& tile = blocks[vTestPoint.y * 24 + vTestPoint.x];
+				auto& tile = blocks[static_cast<size_t>(vTestPoint.y * 24 + vTestPoint.x)];
 
-				// Check if ball collided with bat
-				if (
-					vTestPoint.y >= (static_cast<float>(ScreenHeight() - 20.0f))
-					&& (vTestPoint.x > fBatPos)
-					&& (vTestPoint.x < fBatPos + fBatWidth)
-				)
-					vBallDir.x *= -1.0f;
+				// Preventing array index overflow
+				if ((vTestPoint.y * 24 + vTestPoint.x) > 24 * 30)
+					return false;
 
 				// Check for tile collisions
 				if (tile == 0) // Do nothing, no collision
@@ -112,7 +109,7 @@ public:
 						id = tile;
 						hitpos = { static_cast<float>(vTestPoint.x), static_cast<float>(vTestPoint.y) };
 						tile--;
-					} 
+					}
 
 					// Collision response
 					if (point.x == 0.0f)
@@ -122,15 +119,6 @@ public:
 					return bTileHit;
 				}
 		};
-
-		// Check if ball has gone off screen
-		olc::vf2d vBallScreenPos{ vPotentialBallPos * vBlockSize };
-		if (vBallScreenPos.y > ScreenHeight()){
-			// Reset ball location
-			float fAngle = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 2.0f * 3.14159f;
-			vBallDir = { cos(fAngle), sin(fAngle) };
-			vBallPos = { 12.5f, 15.5f };
-		}
 
 		// Test for hits on 4 points around the ball
 		bool bHasHitTile = false;
@@ -143,6 +131,24 @@ public:
 
 		// Update ball position
 			vBallPos += vBallDir * fBallSpeed * fElapsedTime;
+
+		// Handle User Input
+		// Lerp the bat into position
+		vBatPos.x +=
+			(fBatSpeed * (static_cast<float>(GetMouseX() / vBlockSize.x) 
+			- vBatPos.x - static_cast<int>(fBatWidth / vBlockSize.x) / 2)) * fElapsedTime;
+
+		// Manage out of bounds bat
+		if (vBatPos.x < 1.0f) vBatPos.x = 1.0f;
+		if (vBatPos.x + fBatWidth / vBlockSize.x > 23)
+			vBatPos.x = 23.0f - fBatWidth / vBlockSize.x;
+
+		// Manage ball bat collision
+		if (
+			vBallPos.y >= vBatPos.y
+			&& (vBallPos.x > vBatPos.x)
+			&& (vBallPos.x < vBatPos.x + (fBatWidth / vBlockSize.x))
+		) vBallDir.y *= -1.0f;	
 
 		if (bHasHitTile){
 			for (int i = 0; i < 100; i++){
@@ -207,8 +213,6 @@ public:
 						DrawPartialSprite(olc::vi2d(x, y) * vBlockSize, sprTiles.get(), olc::vi2d(3, 0) * vBlockSize, vBlockSize);
 						break;
 				}
-				if ((y * 24 + x) != 0)
-					DrawRect(olc::vi2d(x, y), olc::vi2d(1, 1), olc::WHITE);
 			}
 		}
 		SetPixelMode(olc::Pixel::NORMAL); // Draw Everything without transparency
@@ -217,11 +221,8 @@ public:
 		DrawCircle(vBallPos * vBlockSize, fBallRadius, olc::CYAN);
 
 		// Draw Bat
-		FillRect(fBatPos * vBlockSize.x, ScreenHeight() - 20, fBatWidth, 10, olc::GREEN);
+		FillRect(vBatPos * vBlockSize, { fBatWidth, 10 }, olc::GREEN);
 
-		// Draw Collider
-		DrawRect(fBatPos, ScreenHeight() - 20, fBatWidth, 10, olc::RED);
-		DrawRect(vBallPos, { fBallRadius, fBallRadius }, olc::GREY);
 		// Draw Decals
 		for (auto& f : listFragments)
 			DrawRotatedDecal(f.pos * vBlockSize, decFragment.get(), f.fAngle, {4, 4}, {1, 1}, f.color);
